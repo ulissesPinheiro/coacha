@@ -289,36 +289,184 @@ coacha/
 
 ---
 
-## ⏭️ Próxima sessão — CI/CD
+## 🔁 GitOps com ArgoCD
 
-Temas sugeridos:
+### Conceito
+Git é a **única fonte de verdade**. Nenhum `kubectl apply` manual — o cluster sempre reflete o que está no repositório.
 
-| Tema | O que estudar |
-|---|---|
-| **GitHub Actions** | Pipeline: build → test → docker build → push → deploy |
-| **Docker Registry** | Docker Hub, GitHub Container Registry (GHCR) |
-| **GitOps** | ArgoCD — cluster sincronizado com o Git automaticamente |
-| **Helm** | Gerenciador de pacotes K8s — templates de manifests |
-| **Kustomize** | Overlays por ambiente (dev/staging/prod) sem duplicar YAML |
-
-### Fluxo CI/CD que vamos montar:
 ```
-git push
-    ↓
-GitHub Actions (CI)
-    ├── mvn test
-    ├── docker build -t coacha:$SHA .
-    └── docker push ghcr.io/user/coacha:$SHA
-            ↓
-    Atualiza deployment.yaml com nova tag
-            ↓
-    kubectl apply (CD) ou ArgoCD detecta e sincroniza
-            ↓
-    Rolling update automático no cluster ✅
+git push (coacha-gitops)
+        ↓
+ArgoCD detecta mudança (polling a cada 3min)
+        ↓
+Compara Git vs cluster  →  aplica a diferença
+        ↓
+Rolling update automático ✅
+```
+
+### Instalação
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Aguardar pods
+kubectl rollout status deployment/argocd-server -n argocd
+
+# Senha inicial
+kubectl get secret argocd-initial-admin-secret -n argocd \
+  -o jsonpath='{.data.password}' | base64 -d
+
+# Abrir UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# https://localhost:8080  |  login: admin
+```
+
+### Recurso Application (CRD do ArgoCD)
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coacha
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ulissesPinheiro/coacha-gitops.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: coacha-app
+  syncPolicy:
+    automated:
+      prune: true      # remove recursos deletados no Git
+      selfHeal: true   # reverte mudanças manuais no cluster
+    syncOptions:
+      - CreateNamespace=true
+```
+```bash
+kubectl apply -f k8s/argocd-app.yaml
+kubectl get application coacha -n argocd   # SYNC STATUS + HEALTH STATUS
+kubectl describe application coacha -n argocd
+```
+
+### Estados do ArgoCD
+| Status | Significado |
+|--------|-------------|
+| `Synced` + `Healthy` | Cluster = Git, pods OK ✅ |
+| `OutOfSync` | Algo divergiu — sync pendente |
+| `Degraded` | Pods com problema |
+
+---
+
+## 📦 Estrutura de repositórios (padrão GitOps)
+
+```
+coacha/              ← código Java + Dockerfile
+└── src/
+└── Dockerfile
+└── .github/workflows/ci.yaml
+
+coacha-gitops/       ← manifests K8s (ArgoCD monitora aqui)
+└── k8s/
+    ├── namespace.yaml
+    ├── configmap.yaml
+    ├── deployment.yaml   ← tag da imagem atualizada pelo CI
+    ├── service.yaml
+    ├── ingress.yaml
+    ├── hpa.yaml
+    └── argocd-app.yaml
+```
+
+> ⚠️ `secret.yaml` sempre no `.gitignore`. Criar manualmente:
+> ```bash
+> kubectl create secret generic coacha-secrets \
+>   --from-literal=API_KEY=valor \
+>   --from-literal=DB_PASSWORD=valor \
+>   -n coacha-app
+> ```
+
+---
+
+## 🚀 CI/CD com GitHub Actions
+
+### Fluxo completo praticado
+
+```
+git push (coacha)
+        ↓
+┌─────────────────────────────────────────┐
+│           GitHub Actions                │
+│                                         │
+│  Job 1 🧪 Tests                        │
+│    ./mvnw test                          │
+│         ↓ (para se falhar)             │
+│  Job 2 🐳 Build & Push                 │
+│    docker build                         │
+│    push → ghcr.io/.../coacha:a1b2c3d   │
+│         ↓                              │
+│  Job 3 🔄 Update GitOps               │
+│    checkout coacha-gitops               │
+│    sed → nova tag no deployment.yaml    │
+│    git push                             │
+└─────────────────────────────────────────┘
+        ↓
+ArgoCD detecta mudança no coacha-gitops
+        ↓
+Rolling update automático no cluster ✅
+```
+
+### Por que SHA curto como tag da imagem?
+| Tag | Problema |
+|-----|----------|
+| `latest` | Ambígua — qual código está rodando? |
+| `v1.0.0` | Manual — fácil esquecer |
+| `a1b2c3d` ✅ | Rastreável — abre o GitHub e vê o commit exato |
+
+### Secrets necessários no repo `coacha`
+| Secret | Valor | Para quê |
+|--------|-------|----------|
+| `GITHUB_TOKEN` | automático | push no GHCR |
+| `GITOPS_TOKEN` | PAT com scope `repo` | push no coacha-gitops |
+
+---
+
+## 📁 Estrutura final dos repositórios
+
+```
+github.com/ulissesPinheiro/coacha
+├── .github/workflows/ci.yaml   ← pipeline CI/CD
+├── Dockerfile
+├── pom.xml
+└── src/
+
+github.com/ulissesPinheiro/coacha-gitops
+└── k8s/
+    ├── namespace.yaml
+    ├── configmap.yaml
+    ├── deployment.yaml          ← image tag atualizada pelo CI
+    ├── service.yaml
+    ├── ingress.yaml
+    ├── hpa.yaml
+    └── argocd-app.yaml
 ```
 
 ---
 
+## ⏭️ Próximos temas sugeridos
+
+| Tema | O que estudar |
+|---|---|
+| **Helm** | Gerenciador de pacotes K8s — templates com variáveis por ambiente |
+| **Kustomize** | Overlays dev/staging/prod sem duplicar YAML |
+| **Sealed Secrets** | Secrets criptografados que podem ir para o Git com segurança |
+| **Multi-env GitOps** | Branches ou pastas separadas por ambiente no coacha-gitops |
+
+---
+
 > 🗒️ **Para retomar:** o cluster Minikube para quando o computador reinicia.
-> Para religar: `minikube start --driver=docker`
-> Para ver o estado: `kubectl get all -n coacha-app`
+> ```bash
+> minikube start --driver=docker
+> kubectl get all -n coacha-app
+> kubectl get application coacha -n argocd
+> ```
