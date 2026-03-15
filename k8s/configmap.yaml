@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coacha-config
+  namespace: coacha-app
+data:
+  APP_ENV: "production"
+  APP_GREETING: "Olá do Kubernetes!"
+  MAX_STUDENTS: "100"

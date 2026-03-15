@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coacha-deploy
+  namespace: coacha-app
+  labels:
+    app: coacha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coacha
+  template:
+    metadata:
+      labels:
+        app: coacha
+    spec:
+      containers:
+        - name: coacha
+          image: coacha:4.0
+          # Never = usa imagem local do Minikube (não tenta baixar do registry)
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          # Liveness: K8s reinicia o Pod se essa rota falhar
+          livenessProbe:
+            httpGet:
+              path: /students
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          # Readiness: K8s só envia tráfego quando essa rota responder
+          readinessProbe:
+            httpGet:
+              path: /students
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          envFrom:
+            - configMapRef:
+                name: coacha-config
+            - secretRef:
+                name: coacha-secrets
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
