@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coacha
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ulissesPinheiro/coacha.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: coacha-app
+  syncPolicy:
+    automated:
+      prune: true      # remove recursos deletados no Git
+      selfHeal: true   # reverte mudanças manuais feitas direto no cluster
+    syncOptions:
+      - CreateNamespace=true
