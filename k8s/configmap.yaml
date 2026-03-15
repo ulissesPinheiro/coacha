@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: coacha-config
-  namespace: coacha-app
-data:
-  APP_ENV: "production"
-  APP_GREETING: "Olá do ArgoCD! GitOps funcionando! 🚀"
-  MAX_STUDENTS: "200"
