@@ -442,14 +442,93 @@ github.com/ulissesPinheiro/coacha
 
 github.com/ulissesPinheiro/coacha-gitops
 └── k8s/
-    ├── namespace.yaml
-    ├── configmap.yaml
-    ├── deployment.yaml          ← image tag atualizada pelo CI
-    ├── service.yaml
-    ├── ingress.yaml
-    ├── hpa.yaml
+    ├── base/                        ← manifests comuns
+    │   ├── kustomization.yaml
+    │   ├── namespace.yaml
+    │   ├── configmap.yaml
+    │   ├── deployment.yaml          ← image tag atualizada pelo CI
+    │   ├── service.yaml
+    │   ├── ingress.yaml
+    │   └── hpa.yaml
+    ├── overlays/
+    │   ├── dev/                     ← patches do ambiente dev
+    │   │   └── kustomization.yaml
+    │   └── prod/                    ← patches do ambiente prod ← ArgoCD aponta aqui
+    │       └── kustomization.yaml
     └── argocd-app.yaml
 ```
+
+---
+
+## 🎨 Kustomize — Overlays por ambiente
+
+Ferramenta **nativa do kubectl** para customizar manifests por ambiente sem duplicar YAML.
+
+### Conceito
+```
+base/   →  YAML comum (verdade compartilhada)
+overlay →  só o que MUDA por ambiente
+```
+
+### Estrutura praticada
+```yaml
+# overlays/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base    # herda tudo da base
+
+patches:
+  - patch: |-     # sobrescreve só o que muda
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: coacha-deploy
+        namespace: coacha-app
+      spec:
+        replicas: 1
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: coacha-config
+        namespace: coacha-app
+      data:
+        APP_ENV: "development"
+        APP_GREETING: "Olá do Dev! 🛠️"
+        MAX_STUDENTS: "10"
+```
+
+### Diferenças por ambiente
+
+| Configuração | dev | prod |
+|---|---|---|
+| `replicas` | 1 | 2 |
+| `APP_ENV` | development | production |
+| `MAX_STUDENTS` | 10 | 200 |
+| `memory limit` | 128Mi | 512Mi |
+| `cpu limit` | 200m | 1000m |
+
+### Comandos úteis
+```bash
+# Ver o YAML final gerado (sem aplicar)
+kubectl kustomize k8s/overlays/dev
+kubectl kustomize k8s/overlays/prod
+
+# Aplicar diretamente
+kubectl apply -k k8s/overlays/dev
+kubectl apply -k k8s/overlays/prod
+```
+
+### Kustomize vs Helm
+| | Kustomize | Helm |
+|---|---|---|
+| Nativo no kubectl | ✅ | ❌ instalar separado |
+| Abordagem | patches sobre YAML puro | templates com linguagem própria |
+| Complexidade | simples | mais poderoso |
+| Bom para | ambientes similares | apps com muita variação |
+| ArgoCD suporta | ✅ | ✅ |
 
 ---
 
@@ -458,9 +537,9 @@ github.com/ulissesPinheiro/coacha-gitops
 | Tema | O que estudar |
 |---|---|
 | **Helm** | Gerenciador de pacotes K8s — templates com variáveis por ambiente |
-| **Kustomize** | Overlays dev/staging/prod sem duplicar YAML |
 | **Sealed Secrets** | Secrets criptografados que podem ir para o Git com segurança |
-| **Multi-env GitOps** | Branches ou pastas separadas por ambiente no coacha-gitops |
+| **Multi-env ArgoCD** | Applications separadas por ambiente (dev/prod) no ArgoCD |
+| **Monorepo GitOps** | Múltiplos apps no mesmo coacha-gitops |
 
 ---
 
